@@ -40,7 +40,8 @@ impl Hash for Grep {
 
 fn handle_message(message: Message,
                   greps: &mut HashSet<Grep>,
-                  timeouts: &mut HashMap<(UserId, ChannelId), Instant>)
+                  timeouts: &mut HashMap<(UserId, ChannelId), Instant>,
+                  grepswitch: &mut HashMap<UserId, Tagging>)
                   -> Option<String> {
     let channel = message.channel_id;
     let content = message.content;
@@ -58,6 +59,26 @@ fn handle_message(message: Message,
             .map(|&Grep(ref regex, _)| regex)
             .fold(String::new(),
                   |string, regex| format!("{}\n{}", string, regex)))
+    } else if content == "!grepon" {
+        for (id, &tagging) in grepswitch.iter() {
+           if id == author.id && !tagging {
+                map[author.id] = true;
+                format!("Grep tagging on for {}", id.mention())
+            }
+            else {
+                format!("You're already grepping")
+            }
+        }
+    } else if content == "!grepoff" {
+        for (id, &tagging) in grepswitch.iter() {
+           if id == author.id && tagging {
+                map[author.id] = false;
+                format!("Grep tagging off for {}", id.mention())
+            }
+            else {
+                format!("You're already not grepping")
+            }
+        }
     } else if content.starts_with("!grep ") {
         content.splitn(2, ' ').nth(1).map(|pattern| match Regex::new(pattern) {
             Ok(regex) => {
@@ -66,6 +87,9 @@ fn handle_message(message: Message,
                     "Regex already exists".into()
                 } else {
                     greps.insert(Grep(regex, author.id));
+                    if !grepswitch.contains_key(author.id) {
+                        grepswitch.insert(author.id, true);
+                    }
                     "Regex added".into()
                 }
             }
@@ -115,6 +139,7 @@ fn main() {
     // state
     let mut greps = HashSet::new();
     let mut timeouts = HashMap::new();
+    let mut grepswitch = HashMap::new();
     // api
     let discord = Discord::from_bot_token(&env::var("DISCORD_BOT_TOKEN")
             .expect("DISCORD_BOT_TOKEN not set"))
@@ -129,7 +154,7 @@ fn main() {
     while let Ok(event) = connection.recv_event() {
         if let Event::MessageCreate(message) = event {
             let channel = message.channel_id;
-            if let Some(content) = handle_message(message, &mut greps, &mut timeouts) {
+            if let Some(content) = handle_message(message, &mut greps, &mut timeouts, &mut grepswitch) {
                 let _ = discord.send_message(channel, &content, "", false);
             }
         }
